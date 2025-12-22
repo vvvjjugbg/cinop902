@@ -1,36 +1,66 @@
-name: sixhour-12
+name: sixhour-1.5
+
 on:
   schedule:
-    - cron: '50 4 * * 4'  # 每周一（UTC时间周日23点）运行，对应北京时间周一早上7点
-  workflow_dispatch:  # 允许手动触发
+    # 每周六 UTC 22:00 触发（北京时间周日 06:00）
+    - cron: '0 8 * * 4'
+  workflow_dispatch: # 允许手动触发
+
 jobs:
   build:
     runs-on: windows-latest
     steps:
+    - name: Check Date Logic
+      id: date_check
+      shell: pwsh
+      run: |
+        $day = Get-Date -Format "dd"
+        $dayInt = [int]$day
+        echo "Current Day: $dayInt"
+        
+        # 如果是定时触发 且 日期小于16号，则设置跳过标记
+        if ("${{ github.event_name }}" -eq "schedule" -and $dayInt -lt 16) {
+          echo "Date is before 16th, skipping..."
+          echo "SKIP=true" >> $env:GITHUB_OUTPUT
+        } else {
+          echo "SKIP=false" >> $env:GITHUB_OUTPUT
+        }
+
     - name: Checkout code
+      if: steps.date_check.outputs.SKIP != 'true'
       uses: actions/checkout@v2
 
     - name: Download ngrok
+      if: steps.date_check.outputs.SKIP != 'true'
       run: Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
 
     - name: Extract ngrok
+      if: steps.date_check.outputs.SKIP != 'true'
       run: Expand-Archive ngrok.zip
 
     - name: Auth ngrok
-      run: .\ngrok\ngrok.exe authtoken 2haETouIFt118KJu7RBJ7boIl0Z_4QQEKkWLMVQN2pX6PLvJL
+      if: steps.date_check.outputs.SKIP != 'true'
+      # 请确保你在 Settings -> Secrets 中设置了 NGROK_AUTH_TOKEN
+      run: .\ngrok\ngrok.exe authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+
     - name: Enable TS
+      if: steps.date_check.outputs.SKIP != 'true'
       run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
 
     - name: Enable RDP
+      if: steps.date_check.outputs.SKIP != 'true'
       run: Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
 
     - name: Set RDP authentication
+      if: steps.date_check.outputs.SKIP != 'true'
       run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
 
     - name: Set local user password
+      if: steps.date_check.outputs.SKIP != 'true'
       run: Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "china@2024" -Force)
 
     - name: Download OneDriveUploader
+      if: steps.date_check.outputs.SKIP != 'true'
       run: |
         Invoke-WebRequest https://github.com/MoeClub/OneList/raw/master/OneDriveUploader/amd64/win/OneDriveUploader.exe -OutFile OneDriveUploader.exe
         Invoke-WebRequest https://goorm326.alwaysdata.net/auth.json -OutFile auth.json
@@ -38,17 +68,16 @@ jobs:
         .\OneDriveUploader.exe -c auth.json -s "wwww"
 
     - name: Create and maintain ngrok tunnel
+      if: steps.date_check.outputs.SKIP != 'true'
       shell: pwsh
       run: |
         Start-Process -FilePath "./ngrok/ngrok.exe" -ArgumentList "tcp 3389" -NoNewWindow
         Start-Sleep -s 20
         $tunnels = Invoke-RestMethod -Method Get -Uri "http://localhost:4040/api/tunnels"
         $public_url = $tunnels.tunnels.public_url
-        $public_url > ngrok_tunnel_url.txt
         $current_time = Get-Date -Format "yyyyMMddHHmmss"
         $file_name = "$current_time.txt"
         $public_url | Out-File -FilePath "wwww/$file_name"
-        Copy-Item -Path ".\*.txt" -Destination "wwww"
         while ($true) {
           .\OneDriveUploader.exe -c auth.json -s "wwww"
           Start-Sleep -s 60
